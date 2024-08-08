@@ -1,0 +1,376 @@
+---
+title: "Analysis of Social Vulnerability Index of Portland City"
+author: "Aung Myo Htut"
+date: "`r Sys.Date()`"
+output: 
+  prettydoc::html_pretty:
+    theme: hpstr
+    toc: yes
+    #number_sections: true
+    highlight: github
+    css: custom.scss 
+---
+
+
+```{r setup, include=FALSE}
+#options(width = 100)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, fig.width = 8, fig.height = 6)
+
+```
+
+```{r libraries, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(tigris)
+library(sf)
+library(crsuggest)
+library(mapview)
+library(purrr)
+library(leaflet.extras2)
+library(leafsync)
+library(tmap)
+library(spdep)
+library(viridisLite)
+library(htmlwidgets)
+library(RColorBrewer)
+library(labelled)
+library(webshot)
+library(table1)
+library(kableExtra)
+options(tigris_use_cache = TRUE)
+```
+
+```{r SVI}
+svi <- read.csv("cumberlandsvi.csv")
+
+#Select Variables of Interest out of 158 variables
+cumberlandsvi <- svi %>% 
+  select("COUNTY", "FIPS", "RPL_THEMES","EP_AGE17", "EP_AGE65","EP_CROWD","EP_DISABL","EP_GROUPQ","EP_HBURD",
+         "EP_LIMENG", "EP_MINRTY", "EP_MOBILE", "EP_MUNIT", "EP_NOHSDP", "EP_NOVEH", "EP_POV150", "EP_SNGPNT",
+         "EP_UNEMP", "EP_UNINSUR")
+
+#Rename Variables
+names(cumberlandsvi) <- c("county", "GEOID", "overallsvi", "age17", "age65","crowding","disability","group_qr","housing_costburden",
+                          "limited_English","minority","mobile_homes","multiple_units","nohsdp","novehicle","poverty150","single_parent",
+                          "unemployment_rate","uninsured")
+#colnames(cumberlandsvi)
+cumberlandsvi$GEOID <- as.character(cumberlandsvi$GEOID)
+```
+
+```{r shapefile, message=FALSE, include=FALSE}
+# Load shapefile for City of Portland
+shape <- st_read("W:/My Drive/Alfredo/Portland Geographic/2. Portland SVI/Portland Shapefile/portland.shp", quiet = TRUE)
+```
+
+## INTRODUCTION
+
+The Social Vulnerability Index (SVI), developed by the Centers for Disease Control and Prevention's Agency for Toxic Substances and Disease Registry (CDC/ATSDR), is a tool designed to identify communities at increased risk during public health emergencies. Understanding social vulnerability allows policymakers, emergency response planners, and public health officials to allocate resources and interventions more effectively, ensuring that those who are most in need receive appropriate support.
+
+### WHAT IS SOCIAL VULNERABILITY?
+Every community must prepare for and respond to hazardous events, whether a natural disaster like a tornado or a disease outbreak, or an anthropogenic event such as a harmful chemical spill. The degree to which a community exhibits certain social conditions, including high poverty, low percentage of vehicle access, or crowded households, among others, may affect that community’s ability to prevent human suffering and financial loss in the event of a disaster. These factors describe a community’s social vulnerability.
+
+### THEMES AND CALCULATIONS
+The SVI ranks each census tract on 16 social factors, grouped into four related themes, each representing a different aspect of social vulnerability:
+\
+**Socioeconomic Status:**
+
+* This theme includes indicators such as poverty, unemployment, housing cost burden, no health insurance, and no high school diploma.
+ 
+
+**Household Characteristics:**
+
+* This includes metrics related to age (over 65 and under 17 years), disability, single-parent households, and English language proficiency.
+
+
+**Racial and Ethnic Minority Status:**
+
+* This theme assesses the proportion of all racial/ethnic minorities other than Non-Hispanic Whites.
+
+
+**Housing Type and Transportation:**
+
+* Indicators like multi-unit structures, mobile homes, crowding, no vehicle access, and group quarters are included, highlighting potential barriers in evacuation or shelter-in-place scenarios.
+
+
+For each theme, the SVI uses U.S. Census data to score and rank each tract relative to others, considering these factors collectively to identify areas with potentially greater challenges during emergencies. Percentile ranking values range from 0 to 1, with higher values indicating greater social vulnerability.
+
+
+
+![***Picture:SVI Themes***](SVI-Variable-Table.png){#id .class width=80% height=80%}
+\
+\
+
+### USAGE OF SVI
+
+SVI can be used to:
+
++ Assess community need during emergency preparedness planning
++ Estimate the type and quantity of needed supplies such as food, water, medicine, and bedding.
++ Decide the number of emergency personnel required to assist people.
++ Identify areas in need of emergency shelters.
++ Create a plan to evacuate people, accounting for those who have special needs, such as those  without vehicles, the elderly, or people who do not speak English well.
++ Identify communities that will need continued support to recover following an emergency or natural disaster.
+
+```{r data joining}
+# Jon the two datasets
+portlandsvi <- shape %>% 
+  left_join(cumberlandsvi, by = "GEOID")
+
+# Save the merged dataset as a new shapefile
+# st_write(portlandsvi,"portlandsvi.shp")
+
+# labeling variables
+var_label(portlandsvi) <-
+  list(STATEFP = "State FP Codes",
+       COUNTYFP = "County FP Codes",
+       TRACTCE = "Census Tract Code",
+       AFFGEOID = "American Fact Finder GeoID",
+       GEOID = "GEOID",
+       NAME = "Census Tract Number",
+       NAMELSAD = "Name of Census Tract",
+       STUSPS = "State Abbreviation",
+       NAMELSADCO = "County",
+       STATE_NAME = "State Name",
+       LSAD = "Legal/Statistical Area Descriptor",
+       ALAND = "Land Area",
+       AWATER = "Water Area",
+       county = "County",
+       overallsvi = "Overall SVI Ranking",
+       age17 = "% of Persons Aged 17 & Younger Estimate",
+       age65 = "% of Persons age 65 & Older Estimate",
+       crowding = "Occupied Housing Units with More People than Rooms % Estimate",
+       disability = "Civilian Population with a Disability % Estimate",
+       group_qr = "% of Persons in Group Quarters Estimate",
+       housing_costburden = "% of Housing Cost-Burdened",
+       limited_English = "Persons with limited English speaking % Estimate",
+       minority = "% of Minority",
+       mobile_homes = "% of Mobile Homes Estimate",
+       multiple_units = "Housing with 10 or more Units % Estimate",
+       nohsdp = "Persons (age 25+) with No High School Diploma % Estimate",
+       novehicle = "Households with No Vehicles % Estimate",
+       poverty150 = "% of Persons below 150% Poverty Estimate",
+       single_parent = "% of Single-Parent Households with Children Under 18 Estimate",
+       unemployment_rate = "Unemployment Rate Estimate",
+       uninsured = "Total Civilian Population with Insurance % Estimate",
+       geometry = "Geometry"
+       )
+
+portlandsvi <- portlandsvi %>% 
+  select(-c(STATEFP, COUNTYFP,TRACTCE,AFFGEOID,NAME,STUSPS,NAMELSADCO, LSAD,))
+# Table 
+svi_table <- table1(~ overallsvi + age17 + age65 + crowding + disability + 
+                      group_qr +    housing_costburden + limited_English + minority + 
+                      mobile_homes + multiple_units + nohsdp + novehicle +
+                      poverty150 + single_parent + unemployment_rate + uninsured, 
+                    data = portlandsvi, overall = "Total")
+#svi_table
+```
+
+## TABLE OF SOCIAL VULNEARBILITY INDEX INDICATORS 
+
+```{r format table}
+
+kable_table <- kable(svi_table, format = "html", row.names = F, escape = F)
+kable_table <- kable_table %>% 
+  kable_styling(full_width = FALSE) %>%
+  row_spec(row = 0, color = "white", background = "#FF5733", font_size = 17) %>% # for title
+  row_spec(row = 2, bold = TRUE, font_size = 15, background = "#D3D3D3", color = "black") %>% # each variable
+  row_spec(row = 5, bold = TRUE, font_size = 15, background = "#D3D3D3", color = "black") %>%
+  row_spec(row = 8, bold = TRUE, font_size = 15, background = "#D3D3D3", color = "black") %>%
+  row_spec(row = 11, bold = TRUE, font_size = 15, background = "#D3D3D3", color = "black") %>%
+  row_spec(row = 14, bold = TRUE, font_size = 15, background = "#D3D3D3", color = "black") %>%
+  row_spec(row = 17, bold = TRUE, font_size = 15, background = "#D3D3D3", color = "black") %>%
+  row_spec(row = 20, bold = TRUE, font_size = 15, background = "#D3D3D3", color = "black") %>%
+  row_spec(row = 23, bold = TRUE, font_size = 15, background = "#D3D3D3", color = "black") %>%
+  row_spec(row = 26, bold = TRUE, font_size = 15, background = "#D3D3D3", color = "black") %>%
+  row_spec(row = 29, bold = TRUE, font_size = 15, background = "#D3D3D3", color = "black") %>%
+  row_spec(row = 32, bold = TRUE, font_size = 15, background = "#D3D3D3", color = "black") %>%
+  row_spec(row = 35, bold = TRUE, font_size = 15, background = "#D3D3D3", color = "black") %>%
+  row_spec(row = 38, bold = TRUE, font_size = 15, background = "#D3D3D3", color = "black") %>% 
+  row_spec(row = 41, bold = TRUE, font_size = 15, background = "#D3D3D3", color = "black") %>% 
+  row_spec(row = 44, bold = TRUE, font_size = 15, background = "#D3D3D3", color = "black") %>% 
+  row_spec(row = 47, bold = TRUE, font_size = 15, background = "#D3D3D3", color = "black") %>% 
+  row_spec(row = 50, bold = TRUE, font_size = 15, background = "#D3D3D3", color = "black") %>% 
+  row_spec(row = c(1, 3:4, 6:7, 9:10, 12:13, 15:16, 18:19, 21:22, 24:25, 27:28, 30:31, 33:34, 36:37, 39:40, 42:43, 45:46, 48:49,51:52), background = "white", font_size = 13)
+
+kable_table
+```
+
+```{r erase water}
+portlandsvi_new <- erase_water(
+  portlandsvi,
+  year = 2020
+)
+```
+
+
+
+## SOCIAL VULNERABILITY INDEX OF PORTLAND CITY
+
+### OVERALL SOCIAL VULNEARBILITY INDEX 
+```{r overall svi}
+mapview(portlandsvi_new,
+        zcol = "overallsvi",
+        at = seq(0,1,0.2),
+        col.regions = brewer.pal(5, "OrRd"),
+        layer.name = "Overall SVI Ranking" )
+```
+
+### AGE 17 & YOUNGER 
+```{r age 17}
+mapview(portlandsvi_new,
+        zcol = "age17",
+        at = seq(3,24,3),
+        col.regions = brewer.pal(7, "YlGn"),
+        layer.name = "% of Persons Aged 17 & Younger Estimate")
+```
+
+### AGE 65 & OLDER
+```{r age 65}
+mapview(portlandsvi_new,
+        zcol = "age65",
+        at = seq(0,40,5),
+        col.regions = brewer.pal(8, "Purples"),
+        layer.name = "% of Persons Aged 65 & Older Estimate")
+```
+
+### CROWDING
+```{r crowding}
+mapview(portlandsvi_new,
+        zcol = "crowding",
+        at = c(0,1,2,3,4,5,6,7),
+        col.regions = brewer.pal(8, "RdYlBu"),
+        layer.name = "Occupied Housing Units with <br/> More People than Rooms % Estimate")
+```
+
+### DISABILITY
+```{r disability}
+mapview(portlandsvi_new,
+        zcol = "disability",
+        at = seq(5,35,5),
+        col.regions = brewer.pal(7, "BrBG"),
+        layer.name = "Civilian Population with a Disability % Estimate")
+```
+
+### GROUP QUARTER
+```{r group quarter}
+c1 = rocket(5, alpha = 1, direction = -1)
+mapview(portlandsvi_new,
+        zcol = "group_qr",
+        at = seq(0,15,3),
+        col.regions = c1,
+        layer.name = "% of Persons in Group Quarters Estimate")
+```
+
+
+### HOUSING COST BURDEN
+```{r housing cost burden}
+mapview(portlandsvi_new,
+        zcol = "housing_costburden",
+        at = seq(20,55,5),
+        col.regions = brewer.pal(7, "PuBu"),
+        layer.name = "% of Housing Cost-Burdened")
+```
+
+### LIMITED ENGLISH SPEAKING
+```{r limited Eng}
+mapview(portlandsvi_new,
+        zcol = "limited_English",
+        at = seq(0,10,2),
+        col.regions = brewer.pal(5, "PuRd"),
+        layer.name = "Persons (5 yr +) with limited <br/> English speaking % Estimate")
+```
+
+### MINORITY
+
+```{r minority}
+mapview(portlandsvi_new,
+        zcol = "minority",
+        at = seq(5,35,5),
+        col.regions = brewer.pal(5, "Paired"),
+        layer.name = "% of Minority Population")
+```
+
+### MOBILE HOMES
+```{r mobile homes}
+mapview(portlandsvi_new,
+        zcol = "mobile_homes",
+        # at = seq(0,3,0.5),
+        # col.regions = brewer.pal(6, "Pastel1"),
+        layer.name = "% of Mobile Homes Estimate")
+```
+
+### MULTIPLE UNITS
+```{r multiple units}
+mapview(portlandsvi_new,
+        zcol = "multiple_units",
+        #at = seq(0,80,10),
+        col.regions = brewer.pal(8, "PuRd"),
+        layer.name = "% Housing in Structures with 10 or <br/> more Units Estimates")
+```
+
+### NO HIGH SCHOOL DIPLOMA
+```{r nohsdp}
+mapview(portlandsvi_new,
+        zcol = "nohsdp",
+        at = seq(0,12,2),
+        col.regions = brewer.pal(6, "GnBu"),
+        layer.name = "% Persons (25 yrs +) with <br/> No High School Diploma")
+```
+
+### NO VEHICLE
+```{r no vehicle}
+mapview(portlandsvi_new,
+        zcol = "novehicle",
+        at = seq(0,50,10),
+        col.regions = brewer.pal(5, "Oranges"),
+        layer.name = "% Households with No <br/> Vehicle Available Estimates")
+
+```
+
+### BELOW 150% POVERTY
+```{r poverty}
+mapview(portlandsvi_new,
+        zcol = "poverty150",
+        at = seq(5,45,5),
+        col.regions = brewer.pal(8, "Reds"),
+        layer.name = "% Persons Below 150% <br/> Poverty Estimate")
+```
+
+### SINGLE PARENT
+```{r single parent}
+mapview(portlandsvi_new,
+        zcol = "single_parent",
+        at = seq(0,15,3),
+        col.regions = brewer.pal(5, "Greys"),
+        layer.name = "% Single Parent Households <br/> With Childer Under 18 Estimate")
+```
+
+### UNEMPLOYMENT RATE
+```{r unemployment}
+c2 = inferno(n=4, alpha = 1, direction = -1)
+mapview(portlandsvi_new,
+        zcol = "unemployment_rate",
+        at = seq(0,12,3),
+        col.regions = c2,
+        layer.name = "Unemployment Rate Estimate")
+```
+
+### UNINSURED POPULATION
+```{r uninsured}
+c3 = cividis(n=5, alpha = 1, direction = -1)
+mapview(portlandsvi_new,
+        zcol = "uninsured",
+        at = seq(2,12,2),
+        col.regions = c3,
+        layer.name = "% Uninsured Total Population Estimate")
+```
+
+
+
+**REFERENCES**
+\
+[CDC/ATSDR SVI](https://www.atsdr.cdc.gov/placeandhealth/svi/index.html)
+\
+[CDC SVI Documentation 2022](https://www.atsdr.cdc.gov/placeandhealth/svi/documentation/SVI_documentation_2022.html)
+
+
